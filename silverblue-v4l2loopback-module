@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# The MIT License
+
+# Copyright (c) 2020 Robert Bohne
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+set -e
+set -x 
+source /etc/sysconfig/silverblue-v4l2loopback || source ./silverblue-v4l2loopback
+
+V4L2LOOPBACK_KERNEL_VERSION=$(uname -r)
+
+V4L2LOOPBACK_IMAGETAG=${V4L2LOOPBACK_VERSION}-${V4L2LOOPBACK_KERNEL_VERSION}
+build_v4l2loopback()
+{
+  
+  set +e
+  podman pull ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG}
+  RC=$?
+  # 125 failed to pull
+  set -e
+
+
+  if [[ $RC -eq 125 ]]; then
+
+    echo "The v4l2loopback ${V4L2LOOPBACK_VERSION} kernel module container is not built."
+    echo "Building ${V4L2LOOPBACK_VERSION} kernel module for ${V4L2LOOPBACK_KERNEL_VERSION} ..."
+
+    podman build --build-arg V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION} \
+    --build-arg V4L2LOOPBACK_SHA256=${V4L2LOOPBACK_SHA256} \
+    --build-arg V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION} \
+    -t ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} ${BUILD_SOURCE}
+    
+  else
+    echo "The v4l2loopback ${V4L2LOOPBACK_VERSION} kernel module container is already built."
+  fi
+
+# No version information in V4L2LOOPBACK
+#  if [ "${V4L2LOOPBACK_VERSION}" != "$(podman run --name v4l2loopback -e "V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION}" \
+#    -e "V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION}" --rm --privileged \
+#    ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} modinfo /usr/lib/modules/${V4L2LOOPBACK_KERNEL_VERSION}/extra/v4l2loopback.ko \
+#    |grep '^version'|awk '{print $2}')" ]; then
+#
+#    echo "The v4l2loopback kernel module for ${V4L2LOOPBACK_KERNEL_VERSION} is not the correct version."
+#    echo "Building ${V4L2LOOPBACK_VERSION} kernel module for ${V4L2LOOPBACK_KERNEL_VERSION} ..."
+#
+#    podman build --build-arg V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION} \
+#    --build-arg V4L2LOOPBACK_SHA256=${V4L2LOOPBACK_SHA256} \
+#    --build-arg V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION} \
+#    -t ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} ${BUILD_SOURCE}
+#  fi
+
+  echo "Cleaning up old v4l2loopback kernel module container builds..."
+
+  podman rmi $(podman images -f "dangling=true" -q) &> /dev/null || :
+
+  if [ "$V4L2LOOPBACK_PRUNE_OLD_VERSIONS" = true ] ; then
+
+    for OLD_IMAGES in $(podman images -n|grep v4l2loopback|grep -v ${V4L2LOOPBACK_VERSION}|awk '{print $3}'); do
+      podman rmi ${OLD_IMAGES} &> /dev/null || :
+    done
+
+  fi
+
+}
+
+unload_v4l2loopback()
+{
+  echo "Unloading v4l2loopback..."
+  if lsmod |grep "v4l2loopback" &> /dev/null; then
+    rmmod v4l2loopback
+  fi
+}
+
+load_v4l2loopback()
+{
+  echo "Loading v4l2loopback..."
+
+  if ! lsmod |grep "v4l2loopback" &> /dev/null; then
+    podman run --name v4l2loopback -e "V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION}" \
+    -e "V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION}" --rm --privileged \
+    ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} \
+    insmod /usr/lib/modules/${V4L2LOOPBACK_KERNEL_VERSION}/extra/v4l2loopback.ko
+  fi
+}
+
+
+case "$1" in
+        build)
+          build_v4l2loopback
+        ;;
+
+        load)
+          load_v4l2loopback
+        ;;
+
+        unload)
+          unload_v4l2loopback
+        ;;
+
+        reload)
+          build_v4l2loopback
+          unload_v4l2loopback
+          load_v4l2loopback
+        ;;
+
+        *)
+          echo $"Unknown command. Exiting."
+          echo "Usage:"
+          echo ""
+          echo "build       Build v4l2loopback kernel module container"
+          echo "load        Load v4l2loopback kernel module"
+          echo "unload      Unload v4l2loopback kernel module"
+          echo "reload      Build and reload v4l2loopback kernel module"
+          exit 1
+esac
