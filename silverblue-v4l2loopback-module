@@ -21,10 +21,17 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-
 set -e
-set -x 
-source /etc/sysconfig/silverblue-v4l2loopback || source ./silverblue-v4l2loopback
+if [ -f /etc/sysconfig/silverblue-v4l2loopback ]; then
+  source /etc/sysconfig/silverblue-v4l2loopback 
+else 
+  source ./silverblue-v4l2loopback
+fi
+
+if [ $(id -u) -ne 0 ]; then
+    echo "Please run as root"
+    exit 1;
+fi;
 
 V4L2LOOPBACK_KERNEL_VERSION=$(uname -r)
 
@@ -98,10 +105,16 @@ load_v4l2loopback()
     podman run --name v4l2loopback -e "V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION}" \
     -e "V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION}" --rm --privileged \
     ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} \
-    insmod /usr/lib/modules/${V4L2LOOPBACK_KERNEL_VERSION}/extra/v4l2loopback.ko
+    insmod /usr/lib/modules/${V4L2LOOPBACK_KERNEL_VERSION}/extra/v4l2loopback.ko exclusive_caps=1
   fi
 }
 
+check(){
+  podman run --name v4l2loopback -e "V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION}" \
+    -e "V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION}" --rm --privileged \
+    ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} \
+    /usr/bin/v4l2-ctl --list-devices
+}
 
 case "$1" in
         build)
@@ -122,6 +135,10 @@ case "$1" in
           load_v4l2loopback
         ;;
 
+        check)
+          check
+        ;;
+
         *)
           echo $"Unknown command. Exiting."
           echo "Usage:"
@@ -130,5 +147,6 @@ case "$1" in
           echo "load        Load v4l2loopback kernel module"
           echo "unload      Unload v4l2loopback kernel module"
           echo "reload      Build and reload v4l2loopback kernel module"
+          echo "check       Check module (runs  v4l2-ctl --list-devices)"
           exit 1
 esac
