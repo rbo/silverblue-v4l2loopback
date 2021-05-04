@@ -50,7 +50,7 @@ build_v4l2loopback()
 
     echo "The v4l2loopback ${V4L2LOOPBACK_VERSION} kernel module container is not built."
     echo "Building ${V4L2LOOPBACK_VERSION} kernel module for ${V4L2LOOPBACK_KERNEL_VERSION} ..."
-
+    podman pull registry.fedoraproject.org/fedora:latest
     podman build --build-arg V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION} \
     --build-arg V4L2LOOPBACK_SHA256=${V4L2LOOPBACK_SHA256} \
     --build-arg V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION} \
@@ -102,10 +102,14 @@ load_v4l2loopback()
   echo "Loading v4l2loopback..."
 
   if ! lsmod |grep "v4l2loopback" &> /dev/null; then
+    # Ugly as hell
+    # https://github.com/containers/podman/issues/804
+    echo 0 > /sys/fs/selinux/enforce
     podman run --name v4l2loopback -e "V4L2LOOPBACK_VERSION=${V4L2LOOPBACK_VERSION}" \
     -e "V4L2LOOPBACK_KERNEL_VERSION=${V4L2LOOPBACK_KERNEL_VERSION}" --rm --privileged \
     ${V4L2LOOPBACK_IMAGE}:${V4L2LOOPBACK_IMAGETAG} \
     insmod /usr/lib/modules/${V4L2LOOPBACK_KERNEL_VERSION}/extra/v4l2loopback.ko exclusive_caps=1
+    echo 1 > /sys/fs/selinux/enforce
   fi
 }
 
